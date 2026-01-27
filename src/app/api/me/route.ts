@@ -1,43 +1,25 @@
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
-import { TokenUtils } from '@/lib/token-utils';
-import { UserStore } from '@/lib/user-store';
+import { NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
+import { cookies } from "next/headers";
 
 export async function GET() {
-  console.log('/api/me endpoint called');
-  
   const cookieStore = await cookies();
-  const token = cookieStore.get('auth')?.value;
-  
-  console.log('Auth cookie (token):', token ? 'exists' : 'missing');
+  const token = cookieStore.get("auth")?.value;
 
   if (!token) {
-    console.log('No auth cookie found, returning 401');
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized: token missing" },
+      { status: 401 }
+    );
   }
 
-  // Verify token and extract user ID
-  const payload = TokenUtils.verifyToken(token);
-  
-  if (!payload) {
-    console.log('Invalid or expired token, returning 401');
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+    return NextResponse.json({ user: decoded }, { status: 200 });
+  } catch (err) {
+    return NextResponse.json(
+      { error: "Unauthorized: invalid token" },
+      { status: 401 }
+    );
   }
-
-  console.log('Token verified, user ID:', payload.userId);
-
-  // Fetch user from database
-  const user = await UserStore.findById(payload.userId);
-  
-  if (!user) {
-    console.log('User not found in database, token may be stale. Returning 401.');
-    return NextResponse.json({ error: 'User not found' }, { status: 401 });
-  }
-
-  console.log('User found:', { id: user.id, email: user.email, name: user.name });
-
-  // Return user data without password
-  const { password: _, ...userResponse } = user;
-  
-  return NextResponse.json({ user: userResponse });
 }

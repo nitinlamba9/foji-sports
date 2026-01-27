@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 
 // Simple file-based user store for demo
 // In production, this would be a real database
@@ -34,7 +35,7 @@ const readUsers = (): User[] => {
         id: 'admin-nitin-fixed',
         name: 'Nitin',
         email: 'nitinlamba@gmail.com',
-        password: 'admin123',
+        password: '$2b$12$vdXQkZGLGQOcEUBKsoxUsuMs0mYhdmv7/TcdKxtBIEgTlR18POzlG', // bcrypt hash of "admin123"
         role: 'admin',
         createdAt: new Date().toISOString()
       }
@@ -92,8 +93,13 @@ export class UserStore {
 
   static async create(userData: Omit<User, 'id' | 'createdAt'>): Promise<User> {
     const users = readUsers();
+    
+    // Hash password with bcrypt
+    const hashedPassword = await bcrypt.hash(userData.password, 12);
+    
     const user: User = {
       ...userData,
+      password: hashedPassword,
       id: 'user-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       createdAt: new Date().toISOString()
     };
@@ -108,8 +114,9 @@ export class UserStore {
     const user = await this.findByEmail(email);
     if (!user) return null;
     
-    // Simple password check (in production, use bcrypt)
-    if (user.password !== password) return null;
+    // Verify password with bcrypt
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) return null;
     
     return user;
   }

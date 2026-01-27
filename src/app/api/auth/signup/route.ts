@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UserStore } from '@/lib/user-store';
-import { TokenUtils } from '@/lib/token-utils';
+import jwt from "jsonwebtoken";
+import { cookies } from "next/headers";
 
 export async function POST(request: NextRequest) {
   console.log('Signup API called - real implementation');
@@ -56,12 +57,16 @@ export async function POST(request: NextRequest) {
     
     console.log('User created successfully:', { id: userData.id, email: userData.email });
 
-    // Generate token
-    const token = TokenUtils.generateToken({
-      id: userData.id,
-      email: userData.email,
-      role: userData.role
-    });
+    // Generate real JWT token
+    const token = jwt.sign(
+      {
+        id: userData.id,
+        email: userData.email,
+        role: userData.role,
+      },
+      process.env.JWT_SECRET!,
+      { expiresIn: "7d" }
+    );
 
     // Return user data without password
     const { password: _, ...userResponse } = userData;
@@ -75,13 +80,12 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
 
-    // Set HttpOnly auth cookie with real token
-    response.cookies.set('auth', token, {
+    // Set HttpOnly auth cookie with real JWT token
+    response.cookies.set("auth", token, {
       httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60, // 7 days
-      secure: process.env.NODE_ENV === 'production'
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
     });
 
     console.log('Signup completed successfully with real user data');

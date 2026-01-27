@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { TokenUtils } from '@/lib/token-utils';
+import jwt from 'jsonwebtoken';
+import { cookies } from 'next/headers';
 import { UserStore } from '@/lib/user-store';
 
 export async function withAdminAuth(request: NextRequest) {
   try {
     // Get auth token from cookie
-    const authCookie = request.cookies.get('auth');
+    const cookieStore = await cookies();
+    const authCookie = cookieStore.get('auth');
     
     if (!authCookie) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    // Verify token
-    const payload = TokenUtils.verifyToken(authCookie.value);
+    // Verify JWT token
+    const decoded = jwt.verify(authCookie.value, process.env.JWT_SECRET!) as any;
     
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
-    }
-
     // Fetch user from database
-    const user = await UserStore.findById(payload.userId);
+    const user = await UserStore.findById(decoded.id);
     
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 401 });
