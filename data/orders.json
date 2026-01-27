@@ -1,0 +1,62 @@
+[
+  {
+    "id": "order-1769512819480-sic23uzt9",
+    "userId": "user-1769512488761-u80r85fup",
+    "items": [
+      {
+        "productId": "product-7",
+        "quantity": 1,
+        "price": 1899
+      }
+    ],
+    "total": 1909,
+    "shipping": 0,
+    "platformFee": 10,
+    "status": "processing",
+    "shippingAddress": {
+      "email": "goludemo1@gmail.com",
+      "firstName": "golu",
+      "lastName": "demo",
+      "address": "fresgrgrgregrgrg",
+      "city": "pilani",
+      "state": "rajasthan",
+      "zipCode": "456123",
+      "country": "India",
+      "phone": "7894561235"
+    },
+    "paymentMethod": "cod",
+    "createdAt": "2026-01-27T11:20:19.480Z",
+    "updatedAt": "2026-01-27T11:58:14.206Z"
+  },
+  {
+    "id": "order-1769515582206-whyxsgp88",
+    "userId": "admin-nitin-fixed",
+    "items": [
+      {
+        "productId": "product-1769515496812",
+        "quantity": 1,
+        "price": 2199,
+        "size": "L",
+        "color": "Blue"
+      }
+    ],
+    "total": 2209,
+    "shipping": 0,
+    "platformFee": 10,
+    "status": "shipped",
+    "shippingAddress": {
+      "email": "goludemo1@gmail.com",
+      "firstName": "Demo",
+      "lastName": "Demo",
+      "address": "thyrjnyhgnytny",
+      "city": "pilani",
+      "state": "rajasthan",
+      "zipCode": "456123",
+      "country": "India",
+      "phone": "7894561235"
+    },
+    "paymentMethod": "cod",
+    "createdAt": "2026-01-27T12:06:22.206Z",
+    "updatedAt": "2026-01-27T12:06:54.352Z"
+  }
+]
