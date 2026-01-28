@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
         id: user.id,
         email: user.email,
         role: user.role,
+        name: user.name, // 🔥 Add name to JWT payload
       },
       process.env.JWT_SECRET!,
       { expiresIn: "7d" }

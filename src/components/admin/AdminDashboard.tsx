@@ -136,22 +136,30 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
       setLoading(true);
       
       // Fetch stats
-      const statsResponse = await fetch('/api/admin/stats');
+      const statsResponse = await fetch('/api/admin/stats', {
+        credentials: 'include',
+      });
       const statsData = await statsResponse.json();
       setStats(statsData.stats);
 
       // Fetch users
-      const usersResponse = await fetch('/api/admin/users');
+      const usersResponse = await fetch('/api/admin/users', {
+        credentials: 'include',
+      });
       const usersData = await usersResponse.json();
       setUsers(usersData.users || []);
 
       // Fetch orders
-      const ordersResponse = await fetch('/api/admin/orders');
+      const ordersResponse = await fetch('/api/admin/orders', {
+        credentials: 'include',
+      });
       const ordersData = await ordersResponse.json();
       setOrders(ordersData.orders || []);
 
       // Fetch products
-      const productsResponse = await fetch('/api/admin/products');
+      const productsResponse = await fetch('/api/admin/products', {
+        credentials: 'include',
+      });
       const productsData = await productsResponse.json();
       setProducts(productsData.products || []);
 
