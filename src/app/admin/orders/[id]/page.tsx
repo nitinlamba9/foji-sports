@@ -41,6 +41,7 @@ interface Order {
 
 export default function AdminOrderDetailsPage() {
   const [order, setOrder] = useState<Order | null>(null);
+  const [products, setProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -53,11 +54,26 @@ export default function AdminOrderDetailsPage() {
       const orderId = Array.isArray(resolvedParams.id) ? resolvedParams.id[0] : resolvedParams.id;
       if (orderId) {
         fetchOrder(orderId);
+        fetchProducts();
       }
     };
     
     getOrderId();
   }, [params]);
+
+  const fetchProducts = async () => {
+    try {
+      const response = await fetch('/api/admin/products', {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setProducts(data.products || []);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  };
 
   const fetchOrder = async (orderId: string) => {
     try {
@@ -407,24 +423,75 @@ export default function AdminOrderDetailsPage() {
                     Order Items ({order.items})
                   </h2>
                   <div className="space-y-4">
-                    {order.products.map((item, index) => (
-                      <div key={index} className="flex justify-between items-center py-3 border-b last:border-0">
-                        <div className="flex-1">
-                          <p className="font-medium">Product ID: {item.productId}</p>
-                          <div className="flex items-center space-x-4 text-sm text-gray-500">
-                            <span>Qty: {item.quantity}</span>
-                            {item.size && <span>Size: {item.size}</span>}
-                            {item.color && <span>Color: {item.color}</span>}
+                    {order.products.map((item, index) => {
+                      const product = products.find(p => p.id === item.productId);
+                      return (
+                        <div key={index} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
+                          {product?.image ? (
+                            <img 
+                              src={product.image} 
+                              alt={product.name}
+                              className="w-16 h-16 object-cover rounded-lg"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
+                              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                          )}
+                          
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-gray-900 text-lg">
+                              {product?.name || `Product ${item.productId}`}
+                            </h3>
+                            
+                            <div className="mt-2 space-y-1">
+                              {product?.sku && (
+                                <div className="flex items-center text-sm text-gray-600">
+                                  <span className="font-semibold">SKU:</span>
+                                  <span className="ml-2 font-mono bg-gray-200 px-2 py-1 rounded">{product.sku}</span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                                {item.size && (
+                                  <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                                    <span className="font-semibold">Size:</span> {item.size}
+                                  </span>
+                                )}
+                                {item.color && (
+                                  <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 rounded">
+                                    <span className="font-semibold">Color:</span> {item.color}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded">
+                                  <span className="font-semibold">Qty:</span> {item.quantity}
+                                </span>
+                              </div>
+                              
+                              {product?.category && (
+                                <div className="text-sm text-gray-500">
+                                  <span className="font-semibold">Category:</span> {product.category}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <p className="text-lg font-semibold text-gray-900">
+                              {formatPrice(item.price)}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {formatPrice(item.price * item.quantity)}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Total for this item
+                            </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">{formatPrice(item.price)}</p>
-                          <p className="text-sm text-gray-500">
-                            {formatPrice(item.price * item.quantity)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>

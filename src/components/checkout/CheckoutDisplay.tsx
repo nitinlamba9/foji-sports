@@ -272,6 +272,10 @@ export default function CheckoutDisplay() {
       const data = await response.json();
       console.log('Order placed successfully:', data);
 
+      // Trigger real-time updates for admin dashboard
+      localStorage.setItem('ORDERS_UPDATED', Date.now().toString());
+      window.postMessage({ type: 'ORDERS_UPDATED', timestamp: Date.now() }, '*');
+
       // Clear cart and redirect to thank you page
       localStorage.setItem('cart', JSON.stringify([]));
       window.location.href = '/thank-you';

@@ -40,79 +40,23 @@ function ShopContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const applyCachedProducts = () => {
-      const cached = localStorage.getItem('PRODUCTS_CACHE');
-      if (cached) {
-        try {
-          setProducts(JSON.parse(cached));
-          setLoading(false);
-        } catch (error) {
-          console.error('Failed to parse product cache:', error);
-        }
-      }
-    };
-
-    applyCachedProducts();
-
-    // Only fetch if no cache available
-    if (!localStorage.getItem('PRODUCTS_CACHE')) {
-      fetchProducts();
-    }
+    // PRODUCTION-SAFE: Simple fetch without complex caching
+    // localStorage caching can cause stale data issues in production
+    fetchProducts();
     
-    // Listen for product updates from admin dashboard
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === 'PRODUCTS_UPDATED') {
-        console.log('Products updated via message, refreshing shop page...');
-        setUpdating(true);
-        applyCachedProducts();
-        fetchProducts({ silent: true });
-      }
-    };
-    
-    // Listen for localStorage changes (cross-tab communication)
+    // Listen for product updates from admin dashboard (simple cross-tab communication)
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'PRODUCTS_UPDATED') {
         console.log('Products updated via localStorage, refreshing shop page...');
         setUpdating(true);
-        applyCachedProducts();
         fetchProducts({ silent: true });
-      }
-      if (event.key === 'PRODUCTS_CACHE' && event.newValue) {
-        try {
-          setProducts(JSON.parse(event.newValue));
-        } catch (error) {
-          console.error('Failed to parse product cache:', error);
-        }
       }
     };
     
-    window.addEventListener('message', handleMessage);
     window.addEventListener('storage', handleStorageChange);
-
-    const channel = 'BroadcastChannel' in window ? new BroadcastChannel('products') : null;
-    if (channel) {
-      channel.onmessage = (event) => {
-        if (event.data?.type === 'PRODUCTS_UPDATED') {
-          console.log('Products updated via BroadcastChannel, refreshing shop page...');
-          setUpdating(true);
-          applyCachedProducts();
-          fetchProducts({ silent: true });
-        }
-      };
-    }
-    
-    // Also check for updates periodically as fallback
-    const interval = setInterval(() => {
-      applyCachedProducts();
-    }, 3000);
     
     return () => {
-      window.removeEventListener('message', handleMessage);
       window.removeEventListener('storage', handleStorageChange);
-      if (channel) {
-        channel.close();
-      }
-      clearInterval(interval);
     };
   }, []);
 

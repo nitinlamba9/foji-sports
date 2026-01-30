@@ -1,11 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import Product from '@/models/Product';
+import { connectDB } from '@/lib/db';
 import { withAdminAuth } from '@/lib/admin-auth';
-import fs from 'fs/promises';
-import path from 'path';
 
-const filePath = path.join(process.cwd(), 'data/products.json');
-
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   // Check admin authentication
   const auth = await withAdminAuth(request as any);
   if (auth instanceof NextResponse) {
@@ -13,8 +11,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const data = await fs.readFile(filePath, 'utf-8');
-    const products = JSON.parse(data);
+    await connectDB();
+    const products = await Product.find().sort({ createdAt: -1 });
     return NextResponse.json({ 
       products,
       totalProducts: products.length 
@@ -36,16 +34,8 @@ export async function POST(request: Request) {
   try {
     const productData = await request.json();
     
-    const newProduct = {
-      id: 'product-' + Date.now(),
-      ...productData,
-      createdAt: new Date().toISOString()
-    };
-    
-    const data = await fs.readFile(filePath, 'utf-8');
-    const products = JSON.parse(data);
-    products.push(newProduct);
-    await fs.writeFile(filePath, JSON.stringify(products, null, 2));
+    await connectDB();
+    const newProduct = await Product.create(productData);
     
     return NextResponse.json({ 
       message: 'Product created successfully',
@@ -74,22 +64,22 @@ export async function PUT(request: Request) {
       }, { status: 400 });
     }
 
-    const data = await fs.readFile(filePath, 'utf-8');
-    const products = JSON.parse(data);
-    const productIndex = products.findIndex((p: any) => p.id === productId);
+    await connectDB();
+    const updatedProduct = await Product.findByIdAndUpdate(
+      productId, 
+      updateData, 
+      { new: true, runValidators: true }
+    );
     
-    if (productIndex === -1) {
+    if (!updatedProduct) {
       return NextResponse.json({ 
         error: 'Product not found' 
       }, { status: 404 });
     }
-
-    products[productIndex] = { ...products[productIndex], ...updateData };
-    await fs.writeFile(filePath, JSON.stringify(products, null, 2));
     
     return NextResponse.json({ 
       message: 'Product updated successfully',
-      product: products[productIndex]
+      product: updatedProduct
     });
   } catch (error) {
     return NextResponse.json({ 
@@ -114,22 +104,17 @@ export async function DELETE(request: Request) {
       }, { status: 400 });
     }
 
-    const data = await fs.readFile(filePath, 'utf-8');
-    const products = JSON.parse(data);
-    const productIndex = products.findIndex((p: any) => p.id === productId);
+    await connectDB();
+    const deletedProduct = await Product.findByIdAndDelete(productId);
     
-    if (productIndex === -1) {
+    if (!deletedProduct) {
       return NextResponse.json({ 
         error: 'Product not found' 
       }, { status: 404 });
     }
-
-    products.splice(productIndex, 1);
-    await fs.writeFile(filePath, JSON.stringify(products, null, 2));
     
     return NextResponse.json({ 
-      message: 'Product deleted successfully',
-      deletedProductId: productId
+      message: 'Product deleted successfully'
     });
   } catch (error) {
     return NextResponse.json({ 

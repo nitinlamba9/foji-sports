@@ -4,16 +4,16 @@ import { User } from '../types';
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-export function generateToken(user: User): string {
+export function generateToken(user: any): string {
   try {
     const payload = { 
-      id: user._id, 
+      id: user.id || user._id, 
       email: user.email, 
-      role: user.role 
+      role: user.role,
+      name: user.name
     };
     
-    // Use a simple approach to avoid TypeScript issues
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    const token = jwt.sign(payload, JWT_SECRET);
     console.log('Token generated successfully');
     return token;
   } catch (error) {

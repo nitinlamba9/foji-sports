@@ -25,7 +25,6 @@ export default function HeaderClient({ isLoggedIn, userData }: HeaderClientProps
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-      setIsLoggedIn(false);
       window.location.href = '/login';
     } catch (error) {
       console.error('Logout error:', error);

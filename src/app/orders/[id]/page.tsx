@@ -43,8 +43,9 @@ export default function OrderDetailsPage() {
   useEffect(() => {
     const getOrderId = async () => {
       const resolvedParams = await params;
-      if (resolvedParams.id) {
-        fetchOrder(resolvedParams.id);
+      const orderId = Array.isArray(resolvedParams.id) ? resolvedParams.id[0] : resolvedParams.id;
+      if (orderId) {
+        fetchOrder(orderId);
       }
     };
     

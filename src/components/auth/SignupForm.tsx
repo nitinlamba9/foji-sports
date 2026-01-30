@@ -104,9 +104,8 @@ export default function SignupForm() {
         localStorage.setItem('token', data.token);
       }
 
-      // Redirect to home page and reload to update header auth state
+      // Redirect to home page
       router.push('/');
-      window.location.reload();
 
     } catch (error) {
       console.error('Signup error:', error);

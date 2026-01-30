@@ -66,9 +66,8 @@ export default function LoginForm() {
 
       const data = await response.json();
       
-      // Redirect to home page and reload to update header auth state
+      // Redirect to home page
       router.push('/');
-      window.location.reload();
       
     } catch (error) {
       console.error('Login error:', error);

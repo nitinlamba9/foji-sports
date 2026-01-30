@@ -1,95 +1,148 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { UserStore } from '@/lib/user-store';
+import User from '@/models/User';
 import jwt from "jsonwebtoken";
+import { connectDB } from '@/lib/db';
 import { cookies } from "next/headers";
 
+// Import canonical auth domain - THE LAW
+import { 
+  canCreateUser,
+  validateCreateUserInput,
+  CreateUserInput,
+  UserPublic,
+  UserRole,
+  createSessionConfig,
+  createJWTPayload,
+  toUserPublic
+} from '@/domain/auth';
+
 export async function POST(request: NextRequest) {
-  console.log('Signup API called - real implementation');
+  console.log('Signup API called - canonical domain implementation');
   
   try {
     const { name, email, password, phone } = await request.json();
     console.log('Received data:', { name, email, phone: phone || 'not provided' });
 
-    // Validation
-    if (!name || !email || !password) {
-      console.log('Validation error: Missing required fields');
+    // DOMAIN INPUT VALIDATION - Create canonical input
+    const createUserInput: CreateUserInput = {
+      name: name?.trim() || '',
+      email: email?.trim() || '',
+      password: password || '',
+      phone: phone?.trim() || undefined
+    };
+
+    // DOMAIN INVARIANT CHECK: Can this user be created?
+    if (!canCreateUser(createUserInput)) {
+      const validation = validateCreateUserInput(createUserInput);
+      console.log('Domain validation error:', validation.errors);
       return NextResponse.json(
-        { error: 'Name, email, and password are required' },
+        { error: Object.values(validation.errors).join('. ') },
         { status: 400 }
       );
     }
 
-    if (password.length < 6) {
-      console.log('Validation error: Password too short');
-      return NextResponse.json(
-        { error: 'Password must be at least 6 characters long' },
-        { status: 400 }
-      );
-    }
+    console.log('Domain validation passed for user creation:', { 
+      email: createUserInput.email, 
+      name: createUserInput.name 
+    });
 
-    if (!email.includes('@')) {
-      console.log('Validation error: Invalid email');
-      return NextResponse.json(
-        { error: 'Invalid email format' },
-        { status: 400 }
-      );
-    }
+    // Connect to database
+    await connectDB();
 
-    // Check if user already exists
-    const existingUser = await UserStore.findByEmail(email);
+    // DOMAIN UNIQUENESS CHECK: Case-insensitive email uniqueness
+    const existingUser = await User.findOne({ 
+      email: createUserInput.email.toLowerCase() 
+    });
+    
     if (existingUser) {
-      console.log('Validation error: User already exists');
+      console.log('Domain invariant violation: Email already exists', { email: createUserInput.email });
       return NextResponse.json(
         { error: 'User with this email already exists' },
         { status: 409 }
       );
     }
 
-    // Create user (in production, hash password with bcrypt)
-    console.log('About to create user with data:', { name: name.trim(), email: email.toLowerCase().trim(), phone: phone?.trim() || undefined, role: 'user' });
-    const userData = await UserStore.create({
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      password: password, // In production, hash this!
-      phone: phone?.trim() || undefined,
-      role: 'user'
-    });
-    
-    console.log('User created successfully:', { id: userData.id, email: userData.email });
+    // DOMAIN IDENTITY CREATION: User becomes real only after successful persistence
+    // Role assignment is explicit and boring - always 'user' for signup
+    const userCreationData = {
+      name: createUserInput.name,
+      email: createUserInput.email.toLowerCase(), // Domain handles case normalization
+      password: createUserInput.password, // Domain validated, will be hashed by model hook
+      phone: createUserInput.phone,
+      role: 'user' as UserRole // EXPLICIT: No role inference, no admin creation via signup
+    };
 
-    // Generate real JWT token
+    console.log('Creating user with domain-approved data:', { 
+      name: userCreationData.name, 
+      email: userCreationData.email,
+      role: userCreationData.role 
+    });
+
+    // PERSISTENCE - This is where identity becomes real
+    const userData = await User.create(userCreationData);
+    
+    console.log('User identity created successfully:', { 
+      id: userData._id, 
+      email: userData.email,
+      role: userData.role 
+    });
+
+    // DOMAIN SESSION CREATION - Same path as login, no special casing
+    const sessionConfig = createSessionConfig();
+    const jwtPayload = createJWTPayload({
+      id: userData._id.toString(),
+      email: userData.email,
+      role: userData.role,
+      name: userData.name
+    });
+
+    // Generate JWT token using domain config
     const token = jwt.sign(
-      {
-        id: userData.id,
-        email: userData.email,
-        role: userData.role,
-        name: userData.name, // 🔥 Add name to JWT payload
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: "7d" }
+      jwtPayload,
+      sessionConfig.jwt.secret,
+      { 
+        algorithm: sessionConfig.jwt.algorithm,
+        expiresIn: sessionConfig.jwt.expiresIn
+      }
     );
 
-    // Return user data without password
-    const { password: _, ...userResponse } = userData;
+    console.log('JWT created for new user:', { 
+      id: jwtPayload.id, 
+      email: jwtPayload.email,
+      role: jwtPayload.role,
+      expiresAt: new Date(jwtPayload.exp * 1000).toISOString()
+    });
+
+    // DOMAIN SERIALIZATION - Use canonical user serialization
+    const userPublic: UserPublic = toUserPublic({
+      id: userData._id.toString(),
+      email: userData.email,
+      name: userData.name,
+      role: userData.role,
+      phone: userData.phone,
+      addresses: userData.addresses || [],
+      createdAt: userData.createdAt,
+      updatedAt: userData.updatedAt
+    });
     
     const response = NextResponse.json(
       {
         message: 'Signup successful',
-        token: token,
-        user: userResponse
+        user: userPublic
       },
       { status: 201 }
     );
 
-    // Set HttpOnly auth cookie with real JWT token
-    response.cookies.set("auth", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
+    // DOMAIN COOKIE SETTING - Same config as login, no special casing
+    response.cookies.set(sessionConfig.cookie.name, token, {
+      httpOnly: sessionConfig.cookie.httpOnly,
+      secure: sessionConfig.cookie.secure,
+      sameSite: sessionConfig.cookie.sameSite,
+      maxAge: sessionConfig.cookie.maxAge,
+      path: sessionConfig.cookie.path,
     });
 
-    console.log('Signup completed successfully with real user data');
+    console.log('Signup completed successfully with canonical domain session');
     return response;
 
   } catch (error) {

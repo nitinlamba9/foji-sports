@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ordersStore, type Order, type OrderItem } from '@/lib/orders-store';
+import Order from '@/models/Order';
 import { requireAuth, type AuthenticatedRequest } from '@/lib/auth-middleware';
-
-export type { Order, OrderItem };
+import { connectDB } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   return requireAuth(async (req: AuthenticatedRequest) => {
     try {
+      await connectDB();
+      
       const orderData = await request.json();
       const {
         items,
@@ -32,9 +33,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Create order
-      const order: Order = {
-        id: 'order-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+      // Create order with MongoDB
+      const order = await Order.create({
         userId: req.user!.id,
         items: items,
         total: total,
@@ -43,15 +43,10 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         shippingAddress: shippingAddress,
         paymentMethod: paymentMethod || 'cod',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      // Store order
-      ordersStore.addOrder(order);
+      });
       
       console.log('Order created:', { 
-        id: order.id, 
+        id: order._id, 
         userId: order.userId, 
         total: order.total,
         itemsCount: order.items.length 
@@ -60,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         message: 'Order placed successfully',
         order: {
-          id: order.id,
+          id: order._id,
           total: order.total,
           status: order.status,
           createdAt: order.createdAt
@@ -80,11 +75,13 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   return requireAuth(async (req: AuthenticatedRequest) => {
     try {
+      await connectDB();
+      
       // Get user's orders
-      const userOrders = ordersStore.getOrdersByUserId(req.user!.id);
+      const userOrders = await Order.find({ userId: req.user!.id }).sort({ createdAt: -1 });
       
       return NextResponse.json({
-        orders: userOrders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        orders: userOrders
       });
 
     } catch (error) {

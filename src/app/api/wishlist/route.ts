@@ -1,53 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import Wishlist from '@/models/Wishlist';
 import { requireAuth, type AuthenticatedRequest } from '@/lib/auth-middleware';
-
-const WISHLIST_FILE = path.join(process.cwd(), 'data', 'wishlist.json');
-
-// Ensure data directory exists
-const ensureDataDir = () => {
-  const dataDir = path.dirname(WISHLIST_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-};
-
-// Read wishlist from file
-const readWishlist = (): { userId: string; productId: string; addedAt: string }[] => {
-  ensureDataDir();
-  if (!fs.existsSync(WISHLIST_FILE)) {
-    return [];
-  }
-  
-  try {
-    const data = fs.readFileSync(WISHLIST_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading wishlist file:', error);
-    return [];
-  }
-};
-
-// Write wishlist to file
-const writeWishlist = (wishlist: { userId: string; productId: string; addedAt: string }[]): void => {
-  ensureDataDir();
-  try {
-    fs.writeFileSync(WISHLIST_FILE, JSON.stringify(wishlist, null, 2));
-  } catch (error) {
-    console.error('Error writing wishlist file:', error);
-  }
-};
+import { connectDB } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   console.log('Wishlist GET API called');
   return requireAuth(async (req: AuthenticatedRequest) => {
     try {
+      await connectDB();
       console.log('User authenticated:', req.user!.id);
 
-      // Get user's wishlist items
-      const allWishlistItems = readWishlist();
-      const userWishlistItems = allWishlistItems.filter(item => item.userId === req.user!.id);
+      // Get user's wishlist items from MongoDB
+      const userWishlistItems = await Wishlist.find({ userId: req.user!.id })
+        .populate('productId')
+        .sort({ addedAt: -1 });
       
       console.log('Found wishlist items:', userWishlistItems.length);
       
@@ -66,33 +32,32 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return requireAuth(async (req: AuthenticatedRequest) => {
     try {
+      await connectDB();
+      
       const { productId } = await request.json();
 
       if (!productId) {
         return NextResponse.json({ error: 'Product ID is required' }, { status: 400 });
       }
 
-      // Get current wishlist
-      const wishlist = readWishlist();
-      
       // Check if item already exists
-      const existingItem = wishlist.find(item => 
-        item.userId === req.user!.id && item.productId === productId
-      );
+      const existingItem = await Wishlist.findOne({ 
+        userId: req.user!.id, 
+        productId 
+      });
       
       if (existingItem) {
         return NextResponse.json({ error: 'Item already in wishlist' }, { status: 409 });
       }
 
       // Add new item
-      const newItem = {
+      const newItem = await Wishlist.create({
         userId: req.user!.id,
         productId,
-        addedAt: new Date().toISOString()
-      };
-      
-      wishlist.push(newItem);
-      writeWishlist(wishlist);
+      });
+
+      // Populate product details
+      await newItem.populate('productId');
 
       return NextResponse.json({
         message: 'Item added to wishlist',
@@ -109,26 +74,23 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   return requireAuth(async (req: AuthenticatedRequest) => {
     try {
+      await connectDB();
+      
       const { productId } = await request.json();
 
       if (!productId) {
         return NextResponse.json({ error: 'Product ID is required' }, { status: 400 });
       }
 
-      // Get current wishlist
-      const wishlist = readWishlist();
-      
       // Remove item
-      const initialLength = wishlist.length;
-      const filteredWishlist = wishlist.filter(item => 
-        !(item.userId === req.user!.id && item.productId === productId)
-      );
+      const deletedItem = await Wishlist.findOneAndDelete({
+        userId: req.user!.id,
+        productId
+      });
       
-      if (filteredWishlist.length === initialLength) {
+      if (!deletedItem) {
         return NextResponse.json({ error: 'Item not found in wishlist' }, { status: 404 });
       }
-      
-      writeWishlist(filteredWishlist);
 
       return NextResponse.json({
         message: 'Item removed from wishlist'

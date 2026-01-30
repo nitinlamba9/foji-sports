@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { Users, Package, ShoppingCart, DollarSign, TrendingUp, Settings, LogOut, Eye, Edit, Trash2, Plus, Star } from 'lucide-react';
+import { Product } from '@/domain/product';
+import { LegacyAdminProduct, toCanonicalProduct, toLegacyAdminProduct } from '@/adapters/product.admin';
+import { generateSlug, isValidSlug, normalizeSlug } from '@/lib/slug';
 
 interface User {
   id: string;
@@ -45,34 +48,6 @@ interface Order {
   platformFee: number;
 }
 
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-  originalPrice?: number;
-  discount?: number;
-  stock: number;
-  category: string;
-  status: 'active' | 'inactive';
-  featured: boolean;
-  description?: string;
-  image?: string;
-  images?: string[];
-  videos?: string[];
-  sku?: string;
-  brand?: string;
-  sizes?: string[];
-  colors?: string[];
-  weight?: string;
-  dimensions?: string;
-  material?: string;
-  tags?: string[];
-  rating?: number;
-  reviews?: number;
-  reviewText?: string;
-  slug?: string;
-}
-
 interface AdminDashboardProps {
   userData: {
     id: string;
@@ -86,7 +61,14 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState<User[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<LegacyAdminProduct[]>([]);
+  const [lastOrderCount, setLastOrderCount] = useState(0);
+  const [lastProductCount, setLastProductCount] = useState(0);
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'info' | 'warning' | 'error';
+    message: string;
+    visible: boolean;
+  } | null>(null);
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalOrders: 0,
@@ -97,29 +79,32 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   
   // Product management states
   const [showProductModal, setShowProductModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [productForm, setProductForm] = useState({
+  const [editingProduct, setEditingProduct] = useState<LegacyAdminProduct | null>(null);
+  const [productForm, setProductForm] = useState<LegacyAdminProduct>({
+    id: '', // Empty ID for new products, will be set after creation
     name: '',
     price: 0,
     originalPrice: 0,
     discount: 0,
     stock: 0,
     category: '',
-    status: 'active' as 'active' | 'inactive',
+    status: 'active',
+    featured: false,
     description: '',
     sku: '',
     brand: '',
-    sizes: [] as string[],
-    colors: [] as string[],
+    sizes: [],
+    colors: [],
     weight: '',
     dimensions: '',
     material: '',
-    tags: [] as string[],
-    images: [] as string[],
-    videos: [] as string[],
+    tags: [],
+    images: [],
+    videos: [],
     image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=300&fit=crop',
-    featured: false,
-    slug: ''
+    rating: 0,
+    reviews: 0,
+    reviewText: ''
   });
   
   // Filter states
@@ -129,6 +114,32 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
 
   useEffect(() => {
     fetchAdminData();
+    
+    // Set up real-time updates
+    const interval = setInterval(fetchAdminData, 10000); // Update every 10 seconds
+    
+    // Listen for storage changes (for cross-tab updates)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'ORDERS_UPDATED' || e.key === 'PRODUCTS_UPDATED') {
+        fetchAdminData();
+      }
+    };
+    
+    // Listen for custom events (for same-tab updates)
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data.type === 'ORDERS_UPDATED' || e.data.type === 'PRODUCTS_UPDATED') {
+        fetchAdminData();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('message', handleMessage);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   const fetchAdminData = async () => {
@@ -154,20 +165,55 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
         credentials: 'include',
       });
       const ordersData = await ordersResponse.json();
-      setOrders(ordersData.orders || []);
+      const newOrders = ordersData.orders || [];
+      setOrders(newOrders);
+
+      // Check for new orders
+      if (lastOrderCount > 0 && newOrders.length > lastOrderCount) {
+        const newOrderCount = newOrders.length - lastOrderCount;
+        showNotification('success', `${newOrderCount} new order${newOrderCount > 1 ? 's' : ''} received!`);
+      }
+      setLastOrderCount(newOrders.length);
 
       // Fetch products
       const productsResponse = await fetch('/api/admin/products', {
         credentials: 'include',
       });
       const productsData = await productsResponse.json();
-      setProducts(productsData.products || []);
+      const canonicalProducts = productsData.products || [];
+      
+      // Convert canonical products to legacy admin products
+      const legacyProducts = canonicalProducts.map((product: Product) => 
+        toLegacyAdminProduct(product)
+      );
+      setProducts(legacyProducts);
+
+      // Check for new products
+      if (lastProductCount > 0 && legacyProducts.length > lastProductCount) {
+        const newProductCount = legacyProducts.length - lastProductCount;
+        showNotification('info', `${newProductCount} new product${newProductCount > 1 ? 's' : ''} added!`);
+      }
+      setLastProductCount(legacyProducts.length);
+
+      console.log('Admin data updated at:', new Date().toLocaleTimeString());
 
     } catch (error) {
       console.error('Error fetching admin data:', error);
+      showNotification('error', 'Failed to fetch admin data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const showNotification = (type: 'success' | 'info' | 'warning' | 'error', message: string) => {
+    setNotification({ type, message, visible: true });
+    setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+  };
+
+  const handleManualRefresh = () => {
+    fetchAdminData();
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -243,6 +289,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   const handleAddProduct = () => {
     setEditingProduct(null);
     setProductForm({
+      id: '', // Empty ID for new products
       name: '',
       price: 0,
       originalPrice: 0,
@@ -271,9 +318,10 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
     setShowProductModal(true);
   };
 
-  const handleEditProduct = (product: Product) => {
+  const handleEditProduct = (product: LegacyAdminProduct) => {
     setEditingProduct(product);
     setProductForm({
+      id: product.id,
       name: product.name,
       price: product.price,
       originalPrice: product.originalPrice || 0,
@@ -324,8 +372,8 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
             const timestamp = Date.now();
             window.postMessage({ type: 'PRODUCTS_UPDATED', timestamp }, '*');
             localStorage.setItem('PRODUCTS_UPDATED', timestamp.toString());
-            localStorage.setItem('PRODUCTS_CACHE', JSON.stringify(freshData.products));
-            console.log('Admin delete: PRODUCTS_CACHE written with', freshData.products.length, 'products');
+            // PRODUCTION-SAFE: Removed PRODUCTS_CACHE writing to avoid stale data issues
+            console.log('Admin delete: PRODUCTS_UPDATED broadcast with', freshData.products.length, 'products');
             if ('BroadcastChannel' in window) {
               const channel = new BroadcastChannel('products');
               channel.postMessage({ type: 'PRODUCTS_UPDATED', timestamp });
@@ -345,23 +393,31 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
 
   const handleSaveProduct = async () => {
     try {
-      // Generate slug from name if not provided
-      const slug = productForm.slug || productForm.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
+      // Validate and generate slug using production-safe function
+      let slug = normalizeSlug(productForm.slug || '');
+      
+      if (!slug) {
+        // Generate slug from name if not provided
+        slug = generateSlug(productForm.name);
+      } else if (!isValidSlug(slug)) {
+        alert('Invalid slug format. Please use only lowercase letters, numbers, and hyphens.');
+        return;
+      }
 
-      const productData = {
+      const legacyProductData = {
         ...productForm,
         slug,
         featured: productForm.featured || false
       };
 
+      // Convert legacy product to canonical for API
+      const canonicalProductData = toCanonicalProduct(legacyProductData);
+
       const url = editingProduct ? '/api/admin/products' : '/api/admin/products';
       const method = editingProduct ? 'PUT' : 'POST';
       const payload = editingProduct 
-        ? { productId: editingProduct.id, ...productData }
-        : productData;
+        ? { productId: editingProduct.id, ...canonicalProductData }
+        : canonicalProductData;
 
       const response = await fetch(url, {
         method,
@@ -374,7 +430,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
       if (response.ok) {
         let nextProducts = products;
         if (editingProduct) {
-          const updatedProduct = { ...editingProduct, ...productData };
+          const updatedProduct = { ...editingProduct, ...legacyProductData };
           nextProducts = products.map(product => 
             product.id === editingProduct.id 
               ? updatedProduct
@@ -383,7 +439,9 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
           setProducts(nextProducts);
         } else {
           const newProduct = await response.json();
-          nextProducts = [...products, newProduct.product];
+          // Convert the response back to legacy format
+          const legacyNewProduct = toLegacyAdminProduct(newProduct.product);
+          nextProducts = [...products, legacyNewProduct];
           setProducts(nextProducts);
         }
         setShowProductModal(false);
@@ -394,8 +452,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
           const timestamp = Date.now();
           window.postMessage({ type: 'PRODUCTS_UPDATED', timestamp }, '*');
           localStorage.setItem('PRODUCTS_UPDATED', timestamp.toString());
-          localStorage.setItem('PRODUCTS_CACHE', JSON.stringify(nextProducts));
-          localStorage.setItem('PRODUCTS_CACHE', JSON.stringify(nextProducts));
+          // PRODUCTION-SAFE: Removed PRODUCTS_CACHE writing to avoid stale data issues
           if ('BroadcastChannel' in window) {
             const channel = new BroadcastChannel('products');
             channel.postMessage({ type: 'PRODUCTS_UPDATED', timestamp });
@@ -411,7 +468,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
     }
   };
 
-  const handleToggleProductStatus = async (product: Product) => {
+  const handleToggleProductStatus = async (product: LegacyAdminProduct) => {
     const newStatus = product.status === 'active' ? 'inactive' : 'active';
     
     try {
@@ -467,7 +524,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   const handleAddImage = (imageUrl: string) => {
     setProductForm(prev => ({
       ...prev,
-      images: [...prev.images, imageUrl],
+      images: [...(prev.images || []), imageUrl],
       // Always set main image to the latest uploaded image
       image: imageUrl
     }));
@@ -476,21 +533,21 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   const handleRemoveImage = (index: number) => {
     setProductForm(prev => ({
       ...prev,
-      images: prev.images.filter((_, i) => i !== index)
+      images: (prev.images || []).filter((_, i) => i !== index)
     }));
   };
 
   const handleAddVideo = (videoUrl: string) => {
     setProductForm(prev => ({
       ...prev,
-      videos: [...prev.videos, videoUrl]
+      videos: [...(prev.videos || []), videoUrl]
     }));
   };
 
   const handleRemoveVideo = (index: number) => {
     setProductForm(prev => ({
       ...prev,
-      videos: prev.videos.filter((_, i) => i !== index)
+      videos: (prev.videos || []).filter((_, i) => i !== index)
     }));
   };
 
@@ -524,13 +581,13 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
     const updatedForm = { ...productForm, [field]: value };
     
     // Auto-calculate discount if both prices are set
-    if (updatedForm.originalPrice > 0 && updatedForm.price > 0) {
-      const discount = Math.round(((updatedForm.originalPrice - updatedForm.price) / updatedForm.originalPrice) * 100);
+    if ((updatedForm.originalPrice || 0) > 0 && updatedForm.price > 0) {
+      const discount = Math.round(((updatedForm.originalPrice! - updatedForm.price) / updatedForm.originalPrice!) * 100);
       updatedForm.discount = discount;
     } else if (field === 'originalPrice' && value === 0) {
       updatedForm.discount = 0;
-    } else if (field === 'price' && updatedForm.originalPrice > 0) {
-      const discount = Math.round(((updatedForm.originalPrice - updatedForm.price) / updatedForm.originalPrice) * 100);
+    } else if (field === 'price' && (updatedForm.originalPrice || 0) > 0) {
+      const discount = Math.round(((updatedForm.originalPrice! - updatedForm.price) / updatedForm.originalPrice!) * 100);
       updatedForm.discount = discount;
     } else {
       updatedForm.discount = 0;
@@ -542,18 +599,18 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
   const handleSizeToggle = (size: string) => {
     setProductForm(prev => ({
       ...prev,
-      sizes: prev.sizes.includes(size) 
+      sizes: prev.sizes?.includes(size) 
         ? prev.sizes.filter(s => s !== size)
-        : [...prev.sizes, size]
+        : [...(prev.sizes || []), size]
     }));
   };
 
   const handleColorToggle = (color: string) => {
     setProductForm(prev => ({
       ...prev,
-      colors: prev.colors.includes(color) 
+      colors: prev.colors?.includes(color)
         ? prev.colors.filter(c => c !== color)
-        : [...prev.colors, color]
+        : [...(prev.colors || []), color]
     }));
   };
 
@@ -595,6 +652,32 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                 ADMIN
               </span>
             </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleManualRefresh}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                title="Refresh Data"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Refresh</span>
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('ORDERS_UPDATED');
+                  localStorage.removeItem('PRODUCTS_UPDATED');
+                  fetchAdminData();
+                }}
+                className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                title="Clear Cache"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>Clear Cache</span>
+              </button>
+            </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">Welcome, {userData.name}</span>
               <button
@@ -610,6 +693,52 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Notifications */}
+        {notification && (
+          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
+            notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+            notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+            notification.type === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+            'bg-blue-50 border-blue-200 text-blue-800'
+          } border`}>
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {notification.type === 'error' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L10 8.586l1.293-1.293a1 1 0 00-1.414-1.414L8.586 8l1.293-1.293z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {notification.type === 'info' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {notification.type === 'warning' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.984.826 3.486l-5.58 9.92c-.75 1.334-2.722 1.334-3.486 0L8.257 3.099zM7.5 12.5l1.5-1.5m0 0l3-3m-3 3l-3-3" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium">{notification.message}</p>
+              </div>
+              <button
+                onClick={() => setNotification(null)}
+                className="ml-auto -mx-1.5 -my-1.5 bg-transparent p-1.5 rounded-lg hover:bg-gray-100"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 01-1.414-1.414L10 8.586 4.293 4.293a1 1 0 001.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
@@ -846,8 +975,52 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                           <div className="text-sm text-gray-500">{order.userEmail}</div>
                           <div className="text-xs text-gray-400">{order.shippingAddress.phone}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {order.items}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="space-y-2">
+                            {order.products.map((item: any, index: number) => {
+                              const product = products.find(p => p.id === item.productId);
+                              return (
+                                <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
+                                  {product?.image ? (
+                                    <img 
+                                      src={product.image} 
+                                      alt={product.name}
+                                      className="w-12 h-12 object-cover rounded"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center">
+                                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">
+                                      {product?.name || `Product ${item.productId}`}
+                                    </div>
+                                    <div className="text-sm text-gray-600">
+                                      {product?.sku && (
+                                        <span className="font-mono bg-gray-200 px-1 rounded">{product.sku}</span>
+                                      )}
+                                      {item.size && (
+                                        <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                                          Size: {item.size}
+                                        </span>
+                                      )}
+                                      {item.color && (
+                                        <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded">
+                                          Color: {item.color}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-sm text-gray-500">
+                                      Qty: {item.quantity} × ₹{item.price}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           ₹{order.total.toLocaleString()}
@@ -1240,9 +1413,9 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                       min="0"
                       required
                     />
-                    {productForm.discount > 0 && (
+                    {(productForm.discount || 0) > 0 && (
                       <p className="text-xs text-green-600 mt-1">
-                        Save ₹{(productForm.originalPrice - productForm.price).toLocaleString()} ({productForm.discount}% off)
+                        Save ₹{((productForm.originalPrice || 0) - productForm.price).toLocaleString()} ({productForm.discount}% off)
                       </p>
                     )}
                   </div>
@@ -1298,7 +1471,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                         type="button"
                         onClick={() => handleSizeToggle(size)}
                         className={`px-3 py-1 text-sm border rounded-md transition-colors ${
-                          productForm.sizes.includes(size)
+                          (productForm.sizes || []).includes(size)
                             ? 'bg-blue-500 text-white border-blue-500'
                             : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                         }`}
@@ -1324,7 +1497,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                         type="button"
                         onClick={() => handleColorToggle(color)}
                         className={`px-3 py-1 text-sm border rounded-md transition-colors flex items-center gap-2 ${
-                          productForm.colors.includes(color)
+                          (productForm.colors || []).includes(color)
                             ? 'bg-blue-500 text-white border-blue-500'
                             : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                         }`}
@@ -1357,7 +1530,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Product Images</label>
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
                       <div className="flex flex-wrap gap-2 mb-4">
-                        {productForm.images.map((image, index) => (
+                        {(productForm.images || []).map((image, index) => (
                           <div key={index} className="relative group">
                             <img src={image} alt={`Product ${index + 1}`} className="h-20 w-20 object-cover rounded" />
                             <button
@@ -1406,7 +1579,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Product Videos</label>
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
                       <div className="flex flex-wrap gap-2 mb-4">
-                        {productForm.videos.map((video, index) => (
+                        {(productForm.videos || []).map((video, index) => (
                           <div key={index} className="relative group">
                             <div className="h-20 w-20 bg-gray-200 rounded flex items-center justify-center">
                               <span className="text-xs text-gray-500">Video {index + 1}</span>
@@ -1470,7 +1643,7 @@ export default function AdminDashboard({ userData }: AdminDashboardProps) {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
                     <input
                       type="text"
-                      value={productForm.tags.join(', ')}
+                      value={(productForm.tags || []).join(', ')}
                       onChange={(e) => setProductForm({...productForm, tags: e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag)})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                       placeholder="e.g., running, sports, fitness"

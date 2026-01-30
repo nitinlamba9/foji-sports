@@ -1,14 +1,9 @@
 import { NextResponse } from 'next/server';
-import { debugUsers, type User } from '@/lib/user-store';
-import { ordersStore, type Order } from '@/lib/orders-store';
+import User from '@/models/User';
+import Order from '@/models/Order';
+import Product from '@/models/Product';
 import { withAdminAuth } from '@/lib/admin-auth';
-
-// Mock products data
-const mockProducts = [
-  { id: 'product-1', status: 'active' },
-  { id: 'product-2', status: 'active' },
-  { id: 'product-3', status: 'active' }
-];
+import { connectDB } from '@/lib/db';
 
 export async function GET(request: Request) {
   // Check admin authentication
@@ -18,59 +13,47 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Get real data from stores
-    const users = debugUsers();
-    const orders = ordersStore.getOrders();
+    await connectDB();
     
-    // Calculate stats
-    const totalUsers = users.length;
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum: number, order: Order) => sum + order.total, 0);
-    const totalProducts = mockProducts.length;
-
-    // Calculate recent stats (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const recentUsers = users.filter((user: User) => 
-      new Date(user.createdAt) > sevenDaysAgo
-    ).length;
-
-    const recentOrders = orders.filter((order: Order) => 
-      new Date(order.createdAt) > sevenDaysAgo
-    ).length;
-
-    const recentRevenue = orders
-      .filter((order: Order) => new Date(order.createdAt) > sevenDaysAgo)
-      .reduce((sum: number, order: Order) => sum + order.total, 0);
-
-    // Order status breakdown
-    const orderStatusBreakdown = orders.reduce((acc, order) => {
-      acc[order.status] = (acc[order.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    // User role breakdown
-    const userRoleBreakdown = users.reduce((acc, user) => {
-      acc[user.role] = (acc[user.role] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return NextResponse.json({
-      stats: {
-        totalUsers,
-        totalOrders,
-        totalRevenue,
-        totalProducts,
-        recentUsers,
-        recentOrders,
-        recentRevenue
-      },
-      breakdowns: {
-        orderStatusBreakdown,
-        userRoleBreakdown
+    // Get real stats from MongoDB
+    const totalUsers = await User.countDocuments();
+    const totalOrders = await Order.countDocuments();
+    const totalProducts = await Product.countDocuments();
+    
+    // Get orders by status
+    const ordersByStatus = await Order.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
       }
-    });
+    ]);
+    
+    // Get recent orders
+    const recentOrders = await Order.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('id total status createdAt');
+    
+    // Format stats
+    const stats = {
+      totalUsers,
+      totalOrders,
+      totalProducts,
+      ordersByStatus: ordersByStatus.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {} as Record<string, number>),
+      recentOrders: recentOrders.map(order => ({
+        id: order._id,
+        total: order.total,
+        status: order.status,
+        createdAt: order.createdAt
+      }))
+    };
+
+    return NextResponse.json({ stats });
   } catch (error) {
     console.error('Error fetching stats:', error);
     return NextResponse.json({ 

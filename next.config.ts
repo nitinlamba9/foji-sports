@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  reactCompiler: true,
+  // Enable React Compiler for production
+  reactCompiler: process.env.NODE_ENV === 'production',
+  
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false, // Set to false for production
   },
+  
   images: {
     remotePatterns: [
       {
@@ -14,7 +16,23 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: '**', // Allow all image domains for flexibility
+        port: '',
+        pathname: '/**',
+      },
     ],
+  },
+  
+  // Vercel-specific optimizations
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
+  
+  // Environment variables
+  env: {
+    CUSTOM_KEY: process.env.CUSTOM_KEY,
   },
 };
 

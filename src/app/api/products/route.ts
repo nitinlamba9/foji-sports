@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
+import Product from '@/models/Product';
+import { connectDB } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-const filePath = path.join(process.cwd(), 'data/products.json');
-
 export async function GET() {
   try {
-    // Read products from file
-    const data = await fs.readFile(filePath, 'utf-8');
-    const allProducts = JSON.parse(data);
-    const activeProducts = allProducts.filter((product: any) => product.status === 'active');
+    await connectDB();
+    
+    // Get active products from MongoDB
+    const activeProducts = await Product.find({ status: 'active' }).sort({ createdAt: -1 });
     
     const response = NextResponse.json({ 
       products: activeProducts,
@@ -20,10 +18,13 @@ export async function GET() {
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     response.headers.set('Pragma', 'no-cache');
     response.headers.set('Expires', '0');
+    
     return response;
   } catch (error) {
-    return NextResponse.json({ 
-      error: 'Failed to fetch products' 
-    }, { status: 500 });
+    console.error('Products fetch error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch products' },
+      { status: 500 }
+    );
   }
 }
