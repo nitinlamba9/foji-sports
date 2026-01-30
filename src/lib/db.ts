@@ -3,27 +3,26 @@ import mongoose from 'mongoose';
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error('DB_CHECK_VERCEL_2026');
-
+  throw new Error('MONGODB_URI is not defined');
 }
 
-/**
- * Global is used here to maintain a cached connection across hot reloads
- * in development and to prevent multiple connections in serverless.
- */
 let cached = (global as any).mongoose;
 
 if (!cached) {
-  cached = (global as any).mongoose = {
-    conn: null,
-    promise: null,
-  };
+  cached = (global as any).mongoose = { conn: null, promise: null };
 }
 
-export async function connectDB() {
-  if (cached.conn) {
-    return cached.conn;
+export async function dbConnect() {
+  if (cached.conn) return cached.conn;
+
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI).then((mongoose) => mongoose);
   }
+
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
+
 
   if (!cached.promise) {
     cached.promise = mongoose.connect(MONGODB_URI).then((mongoose) => {
